@@ -1,0 +1,10 @@
+pandas
+numpy
+geopandas
+scikit-learn
+statsmodels
+streamlit
+folium
+streamlit-folium
+requests
+python-dotenv
