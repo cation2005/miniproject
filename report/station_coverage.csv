@@ -1,0 +1,9 @@
+city,pollutant,stations
+Bangalore,o3,2
+Bangalore,pm10,1
+Bangalore,pm25,5
+Delhi,co,5
+Delhi,no2,4
+Delhi,o3,11
+Delhi,pm10,12
+Delhi,pm25,23
