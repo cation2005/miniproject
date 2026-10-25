@@ -41,6 +41,6 @@ for (city, sid), g in df.groupby(["city", "station_id"]):
             })
 
 out = pd.DataFrame(rows)
-out.to_csv("data/forecast.csv", index=False)
-print("Saved", len(out), "rows to data/forecast.csv")
+out.to_csv("data/forecast_arima.csv", index=False)
+print("Saved", len(out), "rows to data/forecast_arima.csv")
 print(out.groupby(["city", "pollutant"])["station_id"].nunique())
