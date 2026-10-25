@@ -18,6 +18,8 @@ ax = tab.pivot(index="horizon_h", columns="model", values="mae").plot(kind="bar"
 ax.set_xlabel("Forecast horizon (hours)")
 ax.set_ylabel("MAE (µg/m³)")
 ax.set_title(f"PM2.5 forecast error ({len(common)} stations)")
+ax.set_ylim(0, 65)
+ax.legend(ncol=3, loc="upper center")
 plt.xticks(rotation=0)
 plt.tight_layout()
 plt.savefig("report/model_comparison.png", dpi=200)
