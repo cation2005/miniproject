@@ -8,3 +8,4 @@ data/raw/
 *.h5
 *.pt
 .DS_Storedata/worldpop/
+data/raw_openaq.csv
