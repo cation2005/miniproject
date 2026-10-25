@@ -13,7 +13,7 @@ BASE = "https://api.openaq.org/v3"
 CITIES = {"Bangalore": (12.9716, 77.5946), "Delhi": (28.6139, 77.2090)}
 POLLUTANTS = ["pm25", "pm10", "no2", "co", "o3"]
 WEATHER = ["temperature", "relativehumidity", "wind_speed", "wind_direction"]
-DAYS = 14
+DAYS = 60
 MAX_STATIONS = 12
 PAUSE = 1.1  # stay under the API rate limit
 
