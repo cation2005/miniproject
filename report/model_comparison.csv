@@ -1,0 +1,10 @@
+model,horizon_h,mae,rmse
+arima,6,54.56,59.24
+arima,24,43.78,61.44
+arima,72,38.29,51.79
+lstm,6,46.23,50.29
+lstm,24,44.0,62.17
+lstm,72,41.05,55.47
+persistence,6,50.15,53.86
+persistence,24,47.19,60.46
+persistence,72,42.36,54.08
