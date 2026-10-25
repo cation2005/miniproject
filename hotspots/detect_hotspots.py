@@ -34,7 +34,7 @@ DBSCAN_EPS_KM = 10.0     # high-PM2.5 stations within 10 km join one cluster
 HIGH_QUANTILE = 0.75     # "high" = top quartile of PM2.5 in that city/time
 DBSCAN_MIN_SAMPLES = 2
 PERMUTATIONS = 999
-MIN_STATIONS = 4         # below this Gi* is meaningless
+MIN_STATIONS = 5         # below this Gi* is meaningless (Bangalore has 4: rows kept, Gi* left blank)
 
 OUT_COLS = [
     "forecast_time", "city", "station_id", "lat", "lon",
@@ -109,4 +109,9 @@ def main():
 
     print(f"Wrote {len(out)} rows to {OUT_PATH}")
     print(f"Significant station-times: {int(out['is_significant'].sum())}")
-   
+    print(f"In a DBSCAN cluster: {int((out['cluster_id'] >= 0).sum())}")
+
+
+if __name__ == "__main__":
+    main()
+
