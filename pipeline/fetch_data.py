@@ -14,7 +14,7 @@ CITIES = {"Bangalore": (12.9716, 77.5946), "Delhi": (28.6139, 77.2090)}
 POLLUTANTS = ["pm25", "pm10", "no2", "co", "o3"]
 WEATHER = ["temperature", "relativehumidity", "wind_speed", "wind_direction"]
 DAYS = 60
-MAX_STATIONS = 12
+MAX_STATIONS = 30
 PAUSE = 1.1  # stay under the API rate limit
 
 
@@ -43,13 +43,20 @@ def pick_sensors(loc):
     return chosen
 
 
+def recent(loc, days=7):
+    last = (loc.get("datetimeLast") or {}).get("utc")
+    if not last:
+        return True
+    return pd.Timestamp(last) >= pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)
+
+
 def find_stations(lat, lon):
     data = get(f"{BASE}/locations", {"coordinates": f"{lat},{lon}", "radius": 25000, "limit": 100})
     stations = []
     for loc in data.get("results", []):
         sensors = pick_sensors(loc)
         n_poll = sum(p in sensors for p in POLLUTANTS)
-        if "pm25" in sensors and n_poll >= 4:
+        if "pm25" in sensors and recent(loc):
             stations.append((n_poll + sum(w in sensors for w in WEATHER), loc, sensors))
     stations.sort(key=lambda x: -x[0])
     return stations[:MAX_STATIONS]
