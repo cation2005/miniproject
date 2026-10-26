@@ -1,0 +1,258 @@
+import os
+
+import folium
+import pandas as pd
+import streamlit as st
+from folium.plugins import HeatMap
+from streamlit_folium import st_folium
+
+st.set_page_config(page_title="Air Quality Risk Map", page_icon="🌫️", layout="wide")
+
+st.markdown("""
+<style>
+.block-container {padding-top: 1.2rem;}
+.hero {background: linear-gradient(90deg,#7b2ff7,#00c6ff); padding:1.1rem 1.4rem;
+       border-radius:12px; margin-bottom:1rem; box-shadow:0 0 24px #00c6ff55;}
+.hero h1 {margin:0; font-size:1.7rem; color:#fff; font-weight:800;}
+.hero p {margin:.25rem 0 0; color:#eaf6ff; font-size:.95rem;}
+div[data-testid="stMetric"] {background:#141b2d; border:1px solid #00e5ff;
+       padding:.7rem .9rem; border-radius:10px; box-shadow:0 0 14px #00e5ff33;}
+div[data-testid="stMetricValue"] {color:#00e5ff !important; font-weight:800;}
+button[data-baseweb="tab"] {font-weight:700;}
+</style>
+<div class="hero"><h1>🌫️ Spatiotemporal Atmospheric Risk Dashboard</h1>
+<p>Forecast PM2.5 · hotspots · population exposure · Bangalore &amp; Delhi</p></div>
+""", unsafe_allow_html=True)
+
+
+@st.cache_data
+def load(path):
+    return pd.read_csv(path) if os.path.exists(path) else None
+
+
+fc = load("data/forecast.csv")
+ex = load("data/exposure.csv")
+hs = load("data/hotspots.csv")
+cmp_ = load("report/model_comparison.csv")
+if fc is None:
+    st.error("data/forecast.csv not found.")
+    st.stop()
+
+CENTRES = {"Bangalore": (12.9716, 77.5946), "Delhi": (28.6139, 77.2090)}
+BINS = [0, 30, 60, 90, 120, 250, 10000]
+LABELS = ["Good", "Satisfactory", "Moderate", "Poor", "Very poor", "Severe"]
+COLOURS = ["#00e676", "#c6ff00", "#ffea00", "#ff9100", "#ff1744", "#d500f9"]
+
+
+
+def pm25_aqi(v):
+    ranges = [
+        (0, 30, 0, 50),
+        (30, 60, 51, 100),
+        (60, 90, 101, 200),
+        (90, 120, 201, 300),
+        (120, 250, 301, 400),
+        (250, 500, 401, 500),
+    ]
+    v = max(0.0, float(v))
+    for lo, hi, ilo, ihi in ranges:
+        if v <= hi:
+            return round(ilo + (v - lo) * (ihi - ilo) / (hi - lo))
+    return 500
+
+
+def pm25_category(v):
+    if v <= 30:
+        return "Good"
+    if v <= 60:
+        return "Satisfactory"
+    if v <= 90:
+        return "Moderate"
+    if v <= 120:
+        return "Poor"
+    if v <= 250:
+        return "Very Poor"
+    return "Severe"
+
+
+station_names = {}
+try:
+    _stations = pd.read_csv("data/stations.csv")
+    if {"station_id", "station_name"}.issubset(_stations.columns):
+        station_names = dict(zip(
+            _stations["station_id"].astype(str),
+            _stations["station_name"].astype(str)
+        ))
+except Exception:
+    pass
+
+def colour(v):
+    return COLOURS[min(int(pd.cut([v], BINS, labels=False)[0]), 5)]
+
+
+# ---------- sidebar ----------
+st.sidebar.header("Controls")
+city = st.sidebar.selectbox("City", list(CENTRES))
+f = fc[(fc.city == city) & (fc.pollutant == "pm25")]
+times = sorted(f.forecast_time.unique())
+t = st.sidebar.select_slider("Forecast time", options=times, value=times[0])
+layers = st.sidebar.multiselect(
+    "Map layers", ["Forecast PM2.5", "Exposure", "Hotspots"],
+    default=["Forecast PM2.5", "Exposure"])
+ft = f[f.forecast_time == t]
+e = ex[(ex.city == city) & (ex.forecast_time == t)] if ex is not None else None
+
+tab_map, tab_fc, tab_ex, tab_model, tab_alert, tab_about = st.tabs(
+    ["🗺️ Risk map", "📈 Forecast", "👥 Exposure", "🧪 Model comparison",
+     "🚨 Alerts", "ℹ️ About"])
+
+# ---------- risk map ----------
+with tab_map:
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Stations", ft.station_id.nunique())
+    c2.metric("Average PM2.5 (µg/m³)", f"{ft.value.mean():.0f}")
+    c3.metric("Highest PM2.5 (µg/m³)", f"{ft.value.max():.0f}")
+    if e is not None and len(e):
+        poor = e[e.pollution_value > 90].population.sum()
+        c4.metric("People in 'Poor' or worse air", f"{poor:,.0f}")
+
+    m = folium.Map(location=CENTRES[city], zoom_start=11, tiles="OpenStreetMap")
+    m.get_root().html.add_child(folium.Element(
+        "<style>.leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) "
+        "brightness(1.1) contrast(.9);}</style>"))
+    if "Exposure" in layers and e is not None and len(e):
+        eh = e[e.exposure_score > 0.05 * e.exposure_score.max()]
+        w = (eh.exposure_score / eh.exposure_score.max()).values
+        HeatMap([[a, b, c] for a, b, c in zip(eh.lat, eh.lon, w)],
+                radius=14, blur=18, min_opacity=0.35,
+                gradient={0.2: "#00e5ff", 0.5: "#ffea00", 0.8: "#ff6d00",
+                          1.0: "#ff1744"}).add_to(m)
+    if "Forecast PM2.5" in layers:
+        for r in ft.itertuples():
+            folium.CircleMarker(
+                (r.lat, r.lon), radius=9, color="#ffffff", weight=2,
+                fill_color=colour(r.value), fill=True, fill_opacity=1,
+                popup=folium.Popup(
+                    f"<b>{station_names.get(str(r.station_id), chr(83) + chr(116) + chr(97) + chr(116) + chr(105) + chr(111) + chr(110) + chr(32) + str(r.station_id))}</b><br>"
+                    f"PM2.5: {float(r.value):.1f} µg/m³<br>"
+                    f"Estimated PM2.5 AQI sub-index: {pm25_aqi(r.value)}<br>"
+                    f"Category: {pm25_category(float(r.value))}",
+                    max_width=300
+                ),
+                tooltip=f"Click for details: {station_names.get(str(r.station_id), str(r.station_id))}").add_to(m)
+    if "Hotspots" in layers:
+        if hs is None:
+            st.info("hotspots.csv not available yet")
+        else:
+            h = hs[(hs.city == city) & (hs.forecast_time == t)
+                   & (hs.is_significant.astype(str).str.lower() == "true")]
+            for r in h.itertuples():
+                folium.CircleMarker(
+                    (r.lat, r.lon), radius=18, color="#ff00e5", weight=4, fill=False,
+                    tooltip=f"Hotspot (Gi* z={r.gi_zscore:.1f})").add_to(m)
+    st_folium(m, height=600, use_container_width=True)
+    st.caption("Marker colours follow the Indian CPCB PM2.5 categories. "
+               "Times are forecasts, not live readings: the public data feed lags.")
+
+# ---------- forecast ----------
+with tab_fc:
+    st.subheader(f"PM2.5 forecast by station: {city}")
+    top = f[f.horizon_hours == f.horizon_hours.max()].nlargest(5, "value").station_id.tolist()
+    pick = st.multiselect("Stations", sorted(f.station_id.astype(str).unique()),
+                          default=[str(s) for s in top])
+    piv = (f.assign(station_id=f.station_id.astype(str))
+             .pivot_table(index="forecast_time", columns="station_id", values="value"))
+    if pick:
+        st.line_chart(piv[pick])
+    st.markdown(f"**Stations at {t}**")
+    tbl = ft[["station_id", "value", "lat", "lon"]].sort_values("value", ascending=False).copy()
+    tbl["category"] = pd.cut(tbl.value, BINS, labels=LABELS)
+    st.dataframe(tbl.rename(columns={"value": "PM2.5 (µg/m³)"}),
+                 use_container_width=True, hide_index=True)
+
+# ---------- exposure ----------
+with tab_ex:
+    st.subheader(f"Population exposure: {city}")
+    if e is None or not len(e):
+        st.info("exposure.csv not available.")
+    else:
+        e = e.copy()
+        e["category"] = pd.cut(e.pollution_value, BINS, labels=LABELS)
+        a, b = st.columns(2)
+        a.metric("Population in the mapped area", f"{e.population.sum():,.0f}")
+        b.metric("Schools / hospitals mapped",
+                 f"{int(e.schools_count.sum())} / {int(e.hospitals_count.sum())}")
+        st.markdown("**People by air-quality category**")
+        st.bar_chart(e.groupby("category", observed=False).population.sum())
+        st.markdown("**10 highest-exposure cells**")
+        st.dataframe(
+            e.nlargest(10, "exposure_score")[
+                ["lat", "lon", "population", "pollution_value", "exposure_score",
+                 "schools_count", "hospitals_count"]],
+            use_container_width=True, hide_index=True)
+
+# ---------- model comparison ----------
+with tab_model:
+    st.subheader("Forecast accuracy (PM2.5, same stations for every model)")
+    if cmp_ is None:
+        st.info("report/model_comparison.csv not found.")
+    else:
+        st.bar_chart(cmp_.pivot(index="horizon_h", columns="model", values="mae"))
+        st.dataframe(cmp_, use_container_width=True, hide_index=True)
+        st.markdown("The LSTM is best at short range, ARIMA at 72 h; at 24 h they tie. "
+                    "Results come from one 72-hour test window per station, so treat "
+                    "them as indicative.")
+
+# ---------- alerts ----------
+with tab_alert:
+    st.subheader(f"PM2.5 alerts: {city}")
+    a1, a2 = st.columns(2)
+    lead = a1.selectbox("Look-ahead window (hours)", [6, 12, 24, 48, 72], index=0)
+    thr = a2.slider(
+        "Alert threshold, PM2.5 (µg/m³)",
+        min_value=5,
+        max_value=30,
+        value=15,
+        step=1
+    )
+
+    win = f[f.horizon_hours <= lead]
+    peak = win.groupby("station_id").value.max().rename("peak").reset_index()
+    first = (win[win.value > thr].sort_values("horizon_hours")
+             .groupby("station_id").horizon_hours.first()
+             .rename("first_exceeds_h").reset_index())
+    res = peak.merge(first, on="station_id", how="left")
+    res["category"] = pd.cut(res.peak, BINS, labels=LABELS)
+    alerts = res[res.peak > thr].sort_values("peak", ascending=False)
+
+    if alerts.empty:
+        st.success(f"No station is forecast to exceed {thr} µg/m³ within {lead} h.")
+    else:
+        st.error(f"{len(alerts)} of {len(res)} stations are forecast to exceed "
+                 f"{thr} µg/m³ within {lead} h.")
+        st.dataframe(
+            alerts.rename(columns={"peak": "Peak PM2.5 (µg/m³)",
+                                   "first_exceeds_h": "First exceeds at (h)"}),
+            use_container_width=True, hide_index=True)
+
+    if hs is not None and "alert_flag" in hs.columns:
+        flagged = hs[(hs.city == city) & (hs.alert_flag.astype(str).str.lower() == "true")]
+        st.markdown(f"**Alerts from the hotspot module:** "
+                    f"{flagged.station_id.nunique()} stations flagged")
+    st.caption("Look-ahead hours count from the forecast start time, which is "
+               "the newest available reading, not the current time.")
+
+# ---------- about ----------
+with tab_about:
+    st.markdown("""
+**Data:** OpenAQ station measurements (PM2.5 and weather), WorldPop 2020 1 km
+population, OpenStreetMap school and hospital features.
+
+**Method:** ARIMA and LSTM forecasts, DBSCAN and Getis-Ord Gi* hotspots,
+inverse-distance interpolation, exposure = population × PM2.5.
+
+**Limitations:**
+- Newest data is from 23 Oct 2026, so forecasts start in the past.
+- Bangalore has only 4 usable stations, so its surface is heavily interpolated.
+- OpenStreetMap counts are feature counts, not official facility numbers.
+""")
