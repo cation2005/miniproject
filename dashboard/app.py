@@ -772,6 +772,140 @@ with tab_plan:
             )
             st.write(explanation)
 
+            # Explain the actual score for an individual location.
+            st.markdown("#### 🔍 Explain an individual location")
+
+            location_labels = {
+                idx: (
+                    f"Rank {int(row['priority_rank'])} — "
+                    f"({row['lat']:.5f}, {row['lon']:.5f})"
+                )
+                for idx, row in plan.iterrows()
+            }
+
+            chosen_idx = st.selectbox(
+                "Choose a location to explain",
+                options=list(location_labels.keys()),
+                format_func=lambda idx: location_labels[idx],
+                key="explain_location_selector",
+            )
+
+            chosen = plan.loc[chosen_idx]
+
+            factor_details = [
+                (
+                    "Pollution",
+                    "pollution_component",
+                    "pollution_value",
+                ),
+                (
+                    "Population exposure",
+                    "exposure_component",
+                    "exposure_score",
+                ),
+                (
+                    "Schools and hospitals",
+                    "facility_component",
+                    None,
+                ),
+                (
+                    "Hotspot proximity",
+                    "hotspot_component",
+                    None,
+                ),
+            ]
+
+            contribution_rows = []
+
+            for label, component, source in factor_details:
+                normalised_value = float(chosen[component])
+                weight = float(weights[component])
+
+                contribution_rows.append({
+                    "Factor": label,
+                    "Normalised value (0–1)": normalised_value,
+                    "Strategy weight (%)": weight * 100,
+                    "Points contributed": normalised_value * weight * 100,
+                })
+
+            contributions = pd.DataFrame(contribution_rows)
+
+            metric1, metric2, metric3 = st.columns(3)
+            metric1.metric(
+                "Current rank",
+                f"{int(chosen['priority_rank'])} / {len(plan)}",
+            )
+            metric2.metric(
+                "Priority score",
+                f"{float(chosen['priority_score']):.2f} / 100",
+            )
+            metric3.metric(
+                "Planning status",
+                str(chosen["planning_status"]),
+            )
+
+            st.caption(
+                "Each factor's contribution equals its normalised value "
+                "multiplied by its weight. The contributions add up to "
+                "the location's priority score."
+            )
+
+            st.dataframe(
+                contributions.round(2),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.bar_chart(
+                contributions.set_index("Factor")[["Points contributed"]]
+            )
+
+            strongest = contributions.loc[
+                contributions["Points contributed"].idxmax()
+            ]
+
+            st.info(
+                f"**Biggest contributor:** {strongest['Factor']} adds "
+                f"{strongest['Points contributed']:.2f} points under "
+                f"the **{strategy}** strategy. This describes the "
+                "calculation, not proof of actual health risk."
+            )
+
+            st.markdown("##### ⚖️ How does this location compare across strategies?")
+
+            strategy_rows = []
+
+            for strategy_name, strategy_weights in strategies.items():
+                scores = sum(
+                    plan[column] * weight
+                    for column, weight in strategy_weights.items()
+                ) * 100
+
+                ranked_indices = plan.assign(
+                    _comparison_score=scores
+                ).sort_values(
+                    ["_comparison_score", "pollution_value"],
+                    ascending=False,
+                ).index.tolist()
+
+                strategy_rows.append({
+                    "Strategy": strategy_name,
+                    "Location score": float(scores.loc[chosen_idx]),
+                    "Location rank": ranked_indices.index(chosen_idx) + 1,
+                })
+
+            st.dataframe(
+                pd.DataFrame(strategy_rows).round(2),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.caption(
+                "Scores are relative to the current dataset. The weights "
+                "are prototype design choices, not scientifically validated "
+                "emergency-response rules."
+            )
+
             st.download_button(
                 "⬇️ Download strategy comparison (CSV)",
                 data=comparison.to_csv(index=False).encode("utf-8"),
