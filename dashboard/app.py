@@ -44,6 +44,48 @@ LABELS = ["Good", "Satisfactory", "Moderate", "Poor", "Very poor", "Severe"]
 COLOURS = ["#00e676", "#c6ff00", "#ffea00", "#ff9100", "#ff1744", "#d500f9"]
 
 
+
+def pm25_aqi(v):
+    ranges = [
+        (0, 30, 0, 50),
+        (30, 60, 51, 100),
+        (60, 90, 101, 200),
+        (90, 120, 201, 300),
+        (120, 250, 301, 400),
+        (250, 500, 401, 500),
+    ]
+    v = max(0.0, float(v))
+    for lo, hi, ilo, ihi in ranges:
+        if v <= hi:
+            return round(ilo + (v - lo) * (ihi - ilo) / (hi - lo))
+    return 500
+
+
+def pm25_category(v):
+    if v <= 30:
+        return "Good"
+    if v <= 60:
+        return "Satisfactory"
+    if v <= 90:
+        return "Moderate"
+    if v <= 120:
+        return "Poor"
+    if v <= 250:
+        return "Very Poor"
+    return "Severe"
+
+
+station_names = {}
+try:
+    _stations = pd.read_csv("data/stations.csv")
+    if {"station_id", "station_name"}.issubset(_stations.columns):
+        station_names = dict(zip(
+            _stations["station_id"].astype(str),
+            _stations["station_name"].astype(str)
+        ))
+except Exception:
+    pass
+
 def colour(v):
     return COLOURS[min(int(pd.cut([v], BINS, labels=False)[0]), 5)]
 
@@ -90,7 +132,14 @@ with tab_map:
             folium.CircleMarker(
                 (r.lat, r.lon), radius=9, color="#ffffff", weight=2,
                 fill_color=colour(r.value), fill=True, fill_opacity=1,
-                tooltip=f"Station {r.station_id}: {r.value:.0f} µg/m³").add_to(m)
+                popup=folium.Popup(
+                    f"<b>{station_names.get(str(r.station_id), chr(83) + chr(116) + chr(97) + chr(116) + chr(105) + chr(111) + chr(110) + chr(32) + str(r.station_id))}</b><br>"
+                    f"PM2.5: {float(r.value):.1f} µg/m³<br>"
+                    f"Estimated PM2.5 AQI sub-index: {pm25_aqi(r.value)}<br>"
+                    f"Category: {pm25_category(float(r.value))}",
+                    max_width=300
+                ),
+                tooltip=f"Click for details: {station_names.get(str(r.station_id), str(r.station_id))}").add_to(m)
     if "Hotspots" in layers:
         if hs is None:
             st.info("hotspots.csv not available yet")
